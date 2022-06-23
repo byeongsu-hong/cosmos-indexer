@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Block {
+  id        Int      @id @default(autoincrement())
+  chainId   String   @map("chain_id") @db.VarChar(255)
+  height    Int
+  timestamp DateTime @db.DateTime(0)
+  proposer  String   @db.Char(51)
+  // blockreward blockreward?
+  tx        Tx[]
+
+  @@unique([chainId, height], map: "index_with_chainid_and_height")
+  @@map("block")
+}
+
+// model blockreward {
+//   id               Int    @id @default(autoincrement())
+//   reward           Json
+//   commission       Json
+//   rewardPerVal     Json
+//   commissionPerVal Json
+//   blockId          Int?   @unique()
+//   block            block? @relation(fields: [blockId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+// }
+
+model Tx {
+  id        Int      @id @default(autoincrement())
+  chainId   String   @map("chain_id") @db.VarChar(255)
+  hash      String   @db.VarChar(255)
+  timestamp DateTime @db.DateTime(0)
+
+  msgs Json
+  err  String? @db.Text
+  log  Json?
+  fee  Json
+
+  blockId Int   @map("block_id")
+  block   Block @relation(fields: [blockId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+
+  // relations
+  accountTx AccountTx[]
+  messageTx MessageTx[]
+
+  @@unique([chainId, hash], map: "index_with_chainid_and_hash")
+  @@map("tx")
+}
+
+model MessageTx {
+  id           BigInt @id @default(autoincrement())
+  messageIndex Int    @map("message_index")
+  messageType  String @map("message_type") @db.VarChar(255)
+
+  txId Int @map("tx_id")
+  tx   Tx  @relation(fields: [txId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("message_tx")
+}
+
+model AccountTx {
+  id        BigInt   @id @default(autoincrement())
+  account   String   @db.VarChar(255)
+  timestamp DateTime @db.DateTime(0)
+  txId      Int      @map("tx_id")
+  tx        Tx       @relation(fields: [txId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+
+  @@index([account], map: "account_tx_account")
+  @@index([txId], map: "account_tx_tx_id")
+  @@map("account_tx")
+}
+
+model Balance {
+  id        BigInt   @id @default(autoincrement())
+  account   String   @db.VarChar(255)
+  timestamp DateTime @db.DateTime(0)
+  amount    BigInt   @db.UnsignedBigInt
+  denom     String   @db.VarChar(255)
+
+  @@unique([account, timestamp, denom], map: "index_with_account_timestamp_denom")
+  @@index([account], map: "balance_account")
+  @@map("balance")
+}
+
+// model proposal {
+//   id                 Int      @id @default(autoincrement())
+//   proposalId         String   @db.VarChar(255)
+//   chainId            String   @db.VarChar(255)
+//   proposer           String?  @db.VarChar(255)
+//   title              String   @db.VarChar(255)
+//   type               String   @db.VarChar(255)
+//   status             String   @db.VarChar(255)
+//   submitTime         DateTime @db.DateTime(0)
+//   depositEndTime     DateTime @db.DateTime(0)
+//   votingStartTime    DateTime @db.DateTime(0)
+//   votingEndTime      DateTime @db.DateTime(0)
+//   totalVote          Decimal  @db.Decimal(40, 10)
+//   stakedLuna         Decimal  @db.Decimal(40, 10)
+//   content            Json
+//   voteDistribution   Json
+//   voteCount          Json
+//   voters             Json
+//   tallyingParameters Json
+//   depositParams      Json
+//   totalDeposit       Json
+//   votes              Json
+//   deposits           Json
+//   createdAt          DateTime @default(now()) @db.DateTime(6)
+//   updatedAt          DateTime @default(now()) @db.DateTime(6)
+
+//   @@unique([chainId, proposalId], map: "UQ_proposal")
+// }
+
+// model reward {
+//   id         Int      @id @default(autoincrement())
+//   denom      String   @db.VarChar(255)
+//   datetime   DateTime @db.DateTime(0)
+//   tax        Decimal  @db.Decimal(40, 10)
+//   taxUsd     Decimal  @db.Decimal(40, 10)
+//   gas        Decimal  @db.Decimal(40, 10)
+//   gasUsd     Decimal  @db.Decimal(40, 10)
+//   oracle     Decimal  @db.Decimal(40, 10)
+//   oracleUsd  Decimal  @db.Decimal(40, 10)
+//   sum        Decimal? @db.Decimal(40, 10)
+//   commission Decimal? @db.Decimal(40, 10)
+
+//   @@unique([denom, datetime], map: "index_reward_with_denom_and_date")
+//   @@index([datetime], map: "index_reward_datetime")
+//   @@index([denom], map: "index_reward_denom")
+// }
+
+// model richlist {
+//   id         BigInt  @id @default(autoincrement())
+//   denom      String  @db.VarChar(255)
+//   account    String  @db.VarChar(255)
+//   amount     Decimal @db.Decimal(40, 10)
+//   percentage Float   @db.Float
+// }
+
+// model validator_info {
+//   id                      Int      @id @default(autoincrement())
+//   operatorAddress         String   @unique(map: "IDX_2ce80202bce62b189f3391e14e") @db.VarChar(255)
+//   accountAddress          String   @db.VarChar(255)
+//   moniker                 String   @db.VarChar(255)
+//   identity                String   @default("") @db.VarChar(255)
+//   website                 String   @default("") @db.VarChar(255)
+//   securityContact         String   @default("") @db.VarChar(255)
+//   details                 String   @default("") @db.VarChar(255)
+//   profileIcon             String   @default("") @db.VarChar(255)
+//   status                  String   @db.VarChar(255)
+//   jailed                  Int?     @default(0) @db.TinyInt
+//   missedOracleVote        Int
+//   upTime                  Float
+//   unbondingHeight         Int
+//   tokens                  Decimal  @db.Decimal(40, 10)
+//   delegatorShares         Decimal  @db.Decimal(40, 10)
+//   votingPower             Decimal  @db.Decimal(40, 10)
+//   votingPowerWeight       Decimal  @db.Decimal(40, 10)
+//   commissionRate          Decimal  @db.Decimal(40, 10)
+//   maxCommissionRate       Decimal  @db.Decimal(40, 10)
+//   maxCommissionChangeRate Decimal  @db.Decimal(40, 10)
+//   selfDelegation          Decimal  @db.Decimal(40, 10)
+//   selfDelegationWeight    Decimal  @db.Decimal(40, 10)
+//   rewardPoolTotal         Decimal  @db.Decimal(40, 10)
+//   commissionChangeDate    DateTime @db.DateTime(0)
+//   unbondingTime           DateTime @db.DateTime(0)
+//   createdAt               DateTime @default(now()) @db.DateTime(6)
+//   updatedAt               DateTime @default(now()) @db.DateTime(6)
+//   signingInfo             Json?
+//   rewardPool              Json?
+
+//   @@index([accountAddress], map: "vi_account_address")
+//   @@index([jailed], map: "vi_jailed")
+//   @@index([operatorAddress], map: "vi_operator_address")
+//   @@index([status], map: "vi_status")
+// }
+
+// model validator_return_info {
+//   id              Int      @id @default(autoincrement())
+//   operatorAddress String   @db.VarChar(255)
+//   timestamp       DateTime @db.DateTime(0)
+//   reward          Decimal  @db.Decimal(40, 10)
+//   commission      Decimal  @db.Decimal(40, 10)
+//   avgVotingPower  Decimal  @db.Decimal(40, 10)
+
+//   @@unique([timestamp, operatorAddress], map: "vri_index_timestamp_operatorAddress")
+//   @@index([operatorAddress], map: "vri_index_operator_address")
+//   @@index([timestamp], map: "vri_index_timestamp")
+// }
