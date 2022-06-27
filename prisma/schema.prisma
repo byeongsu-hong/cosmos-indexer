@@ -47,21 +47,9 @@ model Tx {
 
   // relations
   accountTx AccountTx[]
-  messageTx MessageTx[]
 
   @@unique([chainId, hash], map: "index_with_chainid_and_hash")
   @@map("tx")
-}
-
-model MessageTx {
-  id           BigInt @id @default(autoincrement())
-  messageIndex Int    @map("message_index")
-  messageType  String @map("message_type") @db.VarChar(255)
-
-  txId Int @map("tx_id")
-  tx   Tx  @relation(fields: [txId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@map("message_tx")
 }
 
 model AccountTx {
