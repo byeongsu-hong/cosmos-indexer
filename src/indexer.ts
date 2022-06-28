@@ -5,6 +5,8 @@ import { TxRepository } from "./service/tx";
 import _ from "lodash";
 import { ResponseBlockInfo } from "./client/rpc";
 import { TxData, TxPayload, TxResponse } from "./client/lcd";
+import { StorePayload } from "./service/tx/repository";
+import { PrismaClient } from "@prisma/client";
 
 const ADDRESS_REGEX = ({
   prefix,
@@ -23,85 +25,90 @@ const isError = (rawLog: string): boolean => {
   }
 };
 
-const storeBlock = (repo: BlockRepository, block: ResponseBlockInfo) =>
-  repo.store({
-    chainId: block.header.chain_id,
-    height: Number(block.header.height),
-    proposer: block.header.proposer_address,
-    timestamp: new Date(block.header.time),
-  });
+const storeBlock = (repo: BlockRepository, blocks: ResponseBlockInfo[]) =>
+  repo.storeBatch(
+    blocks.map(({ header }) => ({
+      chainId: header.chain_id,
+      height: Number(header.height),
+      proposer: header.proposer_address,
+      timestamp: new Date(header.time),
+    }))
+  );
 
-const storeTxs = (
+const storeTxs = async (
   repo: TxRepository,
-  block: ResponseBlockInfo,
   prefixes: { account: string; validator: string },
-  txs: TxData[]
+  payload: {
+    block: ResponseBlockInfo;
+    transactions: TxData[];
+  }[]
 ) => {
   const tmFilter =
     (ok: boolean) =>
-    ({ v: { code } }: { v: TxData; i: number }) =>
+    ({ tx: { code } }: { block: object; tx: TxData; hash: string }) =>
       ok ? code === 0 : code !== 0;
-  const sdkFilter =
-    (ok: boolean) =>
-    ({ v: { tx_response: resp } }: { v: TxData; i: number }) =>
-      ok ? resp?.code === 0 : resp?.code !== 0;
 
   const lengths = [38, 58];
   const combinations: [string, number][] = Object.values(prefixes).flatMap(
     (v) => lengths.map((w): [string, number] => [v, w])
   );
 
-  const base = txs
-    .map((v) => ({ ...v, code: v.code || 0 }))
-    .map((v, i) => ({ v, i }));
-
-  const errTxs = base
-    .filter(tmFilter(false))
-    .map(({ v, i }) => ({
-      v: {
-        message: v.message as string,
-        details: v.details as string[],
-      },
-      i,
-    }))
-    .map(({ v: { message, details }, i }) => ({
-      tx: {
-        height: block.header.height,
-        hash: block.data.txs[i],
-        msgs: [],
-        memo: undefined,
-        fee: {},
-        err: message,
-        log: undefined,
-      },
-      accounts: [],
+  const txResults = payload.map(({ block, transactions: txs }) => {
+    const base = txs.map((v, i) => ({
+      block: block.header,
+      tx: { ...v, code: v.code || 0 },
+      hash: block.data.txs[i],
     }));
 
-  const okTxs = base
-    .filter(tmFilter(true))
-    .map(({ v }) => ({
-      tx: v.tx as TxPayload,
-      tx_response: v.tx_response as TxResponse,
-    }))
-    .map(
-      ({
+    const errTxs: StorePayload[] = base
+      .filter(tmFilter(false))
+      .map((v) => ({
+        ...v,
         tx: {
-          body: { messages: msgs, memo },
-          auth_info: { fee },
+          message: v.tx.message as string,
+          details: v.tx.details as string[],
         },
-        tx_response: { code, height, txhash: hash, logs, raw_log },
-      }) => {
-        const err = isError(raw_log || "") || code !== 0 || !logs;
+      }))
+      .map(({ block: { height }, tx: { message: err }, hash }) => ({
+        tx: {
+          height,
+          hash,
+          msgs: [],
+          memo: undefined,
+          fee: {},
+          err,
+          log: undefined,
+        },
+        accounts: [],
+      }));
 
-        return {
+    const okTxs: StorePayload[] = base
+      .filter(tmFilter(true))
+      .map(({ tx: v }) => ({
+        tx: v.tx as TxPayload,
+        tx_response: v.tx_response as TxResponse,
+        isErr:
+          isError(v.tx_response?.raw_log || "") ||
+          v.tx_response?.code !== 0 ||
+          !v.tx_response?.logs,
+      }))
+      .map(
+        ({
+          tx: {
+            body: { messages: msgs, memo },
+            auth_info: { fee },
+          },
+          tx_response: { height, txhash: hash, logs, raw_log },
+          isErr,
+        }) => ({
           tx: {
             height,
             hash,
             msgs,
             memo,
             fee,
-            err: err ? raw_log : undefined,
-            log: err ? undefined : logs,
+            err: isErr ? raw_log : undefined,
+            log: isErr ? undefined : logs || [],
           },
           accounts: combinations
             .map(([v, w]) => {
@@ -118,28 +125,47 @@ const storeTxs = (
               return _.uniq([...logAddrSet, ...txAddrSet]);
             })
             .flat(),
-        };
-      }
-    );
+        })
+      );
 
-  return repo.store(block.header.chain_id, Number(block.header.height), [
-    ...errTxs,
-    ...okTxs,
-  ]);
+    return {
+      block: block.header,
+      okTxs,
+      errTxs,
+    };
+  });
+
+  return repo.storeBatch(
+    txResults.map(({ block, okTxs, errTxs }) => ({
+      chainId: block.chain_id,
+      height: Number(block.height),
+      txs: [...okTxs, ...errTxs],
+    }))
+  );
 };
 
 export const createIndexer =
   (
+    db: PrismaClient,
     repo: { block: BlockRepository; tx: TxRepository },
     client: { rpc: RpcClient; lcd: LcdClient },
     prefixes: { account: string; validator: string }
   ) =>
-  async (
-    { block, blockResult, transactions }: FetchResult,
-    index: number
-  ): Promise<FetchResult> => {
-    await storeBlock(repo.block, block);
-    await storeTxs(repo.tx, block, prefixes, transactions);
+  async (results: FetchResult[], index: number): Promise<FetchResult[]> => {
+    console.time("indexer");
 
-    return { block, blockResult, transactions };
+    // console.time("store-block");
+    await storeBlock(
+      repo.block,
+      results.map(({ block }) => block)
+    );
+    // console.timeEnd("store-block");
+
+    // console.time("store-txs");
+    await storeTxs(repo.tx, prefixes, results);
+    // console.timeEnd("store-txs");
+
+    console.timeEnd("indexer");
+
+    return results;
   };

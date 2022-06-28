@@ -9,27 +9,15 @@ export type StorePayload = {
 
 export interface BlockRepository {
   store: (payload: StorePayload) => Promise<Block>;
+  storeBatch: (payload: StorePayload[]) => Promise<{ count: number }>;
 }
 
 export class BlockRDBRepository implements BlockRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  store = async (payload: StorePayload): Promise<Block> => {
-    const fetchedBlock = await this.db.block.findUnique({
-      where: {
-        chainId_height: {
-          chainId: payload.chainId,
-          height: payload.height,
-        },
-      },
-    });
-    if (fetchedBlock) {
-      return fetchedBlock;
-    }
+  store = async (payload: StorePayload) =>
+    this.db.block.create({ data: payload });
 
-    const newBlock = await this.db.block.create({
-      data: payload,
-    });
-    return newBlock;
-  };
+  storeBatch = async (payload: StorePayload[]) =>
+    this.db.block.createMany({ data: payload, skipDuplicates: true });
 }

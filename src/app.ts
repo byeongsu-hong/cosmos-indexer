@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { map, of, repeat, concatMap } from "rxjs";
+import { map, of, repeat, concatMap, bufferCount } from "rxjs";
 import { RpcClient, LcdClient } from "./client";
 import { fetchBlockAt } from "./fetch";
 import { createIndexer } from "./indexer";
@@ -7,7 +7,7 @@ import { BlockRDBRepository } from "./service/block";
 import { TxRDBRepository } from "./service/tx";
 
 const {
-  DATABASE_URL,
+  // DATABASE_URL,
   LCD_ENDPOINT = "",
   RPC_ENDPOINT = "",
 
@@ -39,8 +39,10 @@ of({ height })
     repeat({ count, delay }),
     map((v, i) => fetchBlockAt(rpcClient, lcdClient, v.height + i)),
     concatMap((v) => v),
+    bufferCount(100),
     concatMap(
       createIndexer(
+        database,
         { block: blockRepo, tx: txRepo },
         { rpc: rpcClient, lcd: lcdClient },
         { account: ADDR_PREFIX_ACCOUNT, validator: ADDR_PREFIX_VALIDATOR }
@@ -48,7 +50,7 @@ of({ height })
     )
   )
   .subscribe({
-    next({ block, transactions }) {
+    next([{ block, transactions }]) {
       console.log({
         height: block.header.height,
         expected: block.data.txs.length,

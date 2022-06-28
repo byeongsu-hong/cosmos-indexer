@@ -1,4 +1,4 @@
-import { concatMap, map, Observable, zip } from "rxjs";
+import { concatMap, map, mergeMap, Observable, zip } from "rxjs";
 import { createHash } from "crypto";
 import { RpcClient, LcdClient } from "./client";
 import { ResponseTxResult } from "./client/rpc";
