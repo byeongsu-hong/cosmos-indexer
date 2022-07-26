@@ -17,6 +17,8 @@ const {
 
   ADDR_PREFIX_ACCOUNT = undefined,
   ADDR_PREFIX_VALIDATOR = undefined,
+
+  INDEXER_BUFFER_COUNT = "10",
 } = process.env;
 
 if (!ADDR_PREFIX_ACCOUNT || !ADDR_PREFIX_VALIDATOR) {
@@ -34,33 +36,19 @@ const height = Number(TARGET_BLOCK_HEIGHT);
 const count = FINISH_BLOCK_HEIGHT ? Number(FINISH_BLOCK_HEIGHT) : undefined;
 const delay = Number(DELAY);
 
-of({ height })
-  .pipe(
-    repeat({ count, delay }),
-    map((v, i) => fetchBlockAt(rpcClient, lcdClient, v.height + i)),
-    concatMap((v) => v),
-    bufferCount(100),
-    concatMap(
-      createIndexer(
-        database,
-        { block: blockRepo, tx: txRepo },
-        { rpc: rpcClient, lcd: lcdClient },
-        { account: ADDR_PREFIX_ACCOUNT, validator: ADDR_PREFIX_VALIDATOR }
-      )
+const buffer = Number(INDEXER_BUFFER_COUNT);
+
+export default of({ height }).pipe(
+  repeat({ count, delay }),
+  map((v, i) => fetchBlockAt(rpcClient, lcdClient, v.height + i)),
+  concatMap((v) => v),
+  bufferCount(buffer),
+  concatMap(
+    createIndexer(
+      database,
+      { block: blockRepo, tx: txRepo },
+      { rpc: rpcClient, lcd: lcdClient },
+      { account: ADDR_PREFIX_ACCOUNT, validator: ADDR_PREFIX_VALIDATOR }
     )
   )
-  .subscribe({
-    next([{ block, transactions }]) {
-      console.log({
-        height: block.header.height,
-        expected: block.data.txs.length,
-        processed: transactions.length,
-      });
-    },
-    error(err) {
-      console.error(err);
-    },
-    complete() {
-      console.log("Done");
-    },
-  });
+);
