@@ -38,17 +38,18 @@ const delay = Number(DELAY);
 
 const buffer = Number(INDEXER_BUFFER_COUNT);
 
-export default of({ height }).pipe(
-  repeat({ count, delay }),
-  map((v, i) => fetchBlockAt(rpcClient, lcdClient, v.height + i)),
-  concatMap((v) => v),
-  bufferCount(buffer),
-  concatMap(
-    createIndexer(
-      database,
-      { block: blockRepo, tx: txRepo },
-      { rpc: rpcClient, lcd: lcdClient },
-      { account: ADDR_PREFIX_ACCOUNT, validator: ADDR_PREFIX_VALIDATOR }
+export default of({ height }) // Observable<{ height: number }>
+  .pipe(
+    repeat({ count, delay }), // Observable<{ height: number }>
+    map((v, i) => fetchBlockAt(rpcClient, lcdClient, v.height + i)), // Observable<FetchResult>
+    concatMap((v) => v), // Observable<FetchResult>
+    bufferCount(buffer), // Observable<FetchResult[10]>
+    concatMap(
+      createIndexer(
+        database,
+        { block: blockRepo, tx: txRepo },
+        { rpc: rpcClient, lcd: lcdClient },
+        { account: ADDR_PREFIX_ACCOUNT, validator: ADDR_PREFIX_VALIDATOR }
+      )
     )
-  )
-);
+  );
